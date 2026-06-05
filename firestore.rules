@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net catch-all block (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Schema Validation Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidTournament(data) {
+      return data.format in ['2s', '4s']
+        && data.totalRounds is int && data.totalRounds > 0
+        && data.currentRound is int && data.currentRound >= 0
+        && data.status in ['configuring', 'active', 'completed']
+        && (!('title' in data) || (data.title is string && data.title.size() <= 200))
+        && (!('date' in data) || (data.date is string && data.date.size() <= 100))
+        && (!('maxCourts' in data) || (data.maxCourts is int && data.maxCourts >= 1))
+        && (!('playMode' in data) || data.playMode in ['matches', 'individual'])
+        && (!('splitWomenEvenly' in data) || data.splitWomenEvenly is bool);
+    }
+
+    function isValidPlayer(data) {
+      return data.id is string
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.points is int
+        && data.byesCount is int
+        && data.satOutRounds is list
+        && (!('gender' in data) || data.gender in ['male', 'female']);
+    }
+
+    function isValidMatch(data) {
+      return data.id is string
+        && data.round is int
+        && (data.court == null || data.court is int)
+        && (!('teamNumber' in data) || data.teamNumber is int)
+        && data.teamA is list
+        && data.teamANames is list
+        && data.teamB is list
+        && data.teamBNames is list
+        && (data.teamAScore == null || data.teamAScore is int)
+        && (data.teamBScore == null || data.teamBScore is int)
+        && data.status in ['pending', 'completed'];
+    }
+
+    function isValidRound(data) {
+      return data.roundNumber is int
+        && data.byes is list;
+    }
+
+    // 2. Collection Rules
+    
+    match /tournaments/{tournamentId} {
+      allow read: if true;
+      allow create, update: if isValidId(tournamentId) && isValidTournament(request.resource.data);
+      allow delete: if isValidId(tournamentId);
+
+      match /players/{playerId} {
+        allow read: if true;
+        allow create, update: if isValidId(playerId) && isValidPlayer(request.resource.data);
+        allow delete: if isValidId(playerId);
+      }
+
+      match /matches/{matchId} {
+        allow read: if true;
+        allow create, update: if isValidId(matchId) && isValidMatch(request.resource.data);
+        allow delete: if isValidId(matchId);
+      }
+
+      match /rounds/{roundId} {
+        allow read: if true;
+        allow create, update: if isValidId(roundId) && isValidRound(request.resource.data);
+        allow delete: if isValidId(roundId);
+      }
+
+      match /brackets/{bracketId} {
+        allow read: if true;
+        allow create, update, delete: if isValidId(bracketId);
+      }
+    }
+
+    // Retain compatibility for root-level collections for existing systems if any
+    match /players/{playerId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(playerId);
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(matchId);
+    }
+
+    match /rounds/{roundId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(roundId);
+    }
+
+    match /brackets/{bracketId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(bracketId);
+    }
+
+    match /organizers/{organizerId} {
+      allow read: if true;
+      allow create, update: if request.auth != null && (organizerId is string && organizerId.size() <= 128);
+      allow delete: if request.auth != null;
+    }
+  }
+}

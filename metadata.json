@@ -1,0 +1,6 @@
+{
+  "name": "Tournament Management App",
+  "description": "Full-stack tournament management system with real-time court arrangements, automatic player matchmaking, bye assignments, and live scoreboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
