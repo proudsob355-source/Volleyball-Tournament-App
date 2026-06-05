@@ -54,7 +54,7 @@ export function ParticipantHub() {
           </div>
           <div>
             <h1 className="text-lg font-display font-black tracking-tight bg-gradient-to-r from-white via-slate-50 to-indigo-100 bg-clip-text text-transparent w-full">
-              North Beach LI Tournaments
+              Tournaments
             </h1>
             <p className="text-[10px] font-mono uppercase tracking-widest text-indigo-400 font-bold">
               Viewer & Placements Portal
@@ -236,6 +236,15 @@ export function ParticipantTournamentView() {
   const [activeDivisionFilter, setActiveDivisionFilter] = useState<'higher' | 'lower'>('higher');
   const [isLoading, setIsLoading] = useState(true);
   const [showLargeQr, setShowLargeQr] = useState(false);
+  const [selectedRoundView, setSelectedRoundView] = useState<number | null>(null);
+  const [participantTab, setParticipantTab] = useState<'pool' | 'bracket'>('pool');
+  const [hasSwitchedToBracket, setHasSwitchedToBracket] = useState(false);
+
+  useEffect(() => {
+    if (tournament && selectedRoundView === null) {
+      setSelectedRoundView(tournament.currentRound);
+    }
+  }, [tournament, selectedRoundView]);
 
   useEffect(() => {
     if (!tournamentId) return;
@@ -310,6 +319,20 @@ export function ParticipantTournamentView() {
     };
   }, [tournamentId]);
 
+  // Render Bracket view if configured/active
+  const hasBracketPlay = bracketState && bracketState.status !== 'idle';
+
+  // Auto-switch to playoffs tab when playoffs state goes active
+  useEffect(() => {
+    if (hasBracketPlay && !hasSwitchedToBracket) {
+      setParticipantTab('bracket');
+      setHasSwitchedToBracket(true);
+    } else if (!hasBracketPlay) {
+      setParticipantTab('pool');
+      setHasSwitchedToBracket(false);
+    }
+  }, [hasBracketPlay, hasSwitchedToBracket]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6 bg-[radial-gradient(120%_120%_at_50%_0%,_#241a0f_0%,_#030a12_100%)]">
@@ -334,9 +357,19 @@ export function ParticipantTournamentView() {
     );
   }
 
-  // Derived Match lists for active round
-  const activeRoundMatches = matches.filter(m => m.round === tournament.currentRound);
-  const activeRoundByes = rounds.find(r => r.roundNumber === tournament.currentRound)?.byes || [];
+  // Find distinct round numbers that have matches or exist in rounds collection or the tournament currentRound
+  const availableRounds = Array.from(
+    new Set([
+      ...matches.map(m => m.round),
+      ...rounds.map(r => r.roundNumber),
+      tournament.currentRound
+    ].filter(r => typeof r === 'number' && r > 0))
+  ).sort((a, b) => a - b);
+
+  // Derived Match lists for active or selected round
+  const displayRound = selectedRoundView !== null ? selectedRoundView : tournament.currentRound;
+  const activeRoundMatches = matches.filter(m => m.round === displayRound);
+  const activeRoundByes = rounds.find(r => r.roundNumber === displayRound)?.byes || [];
 
   // Standings filtering
   const filteredPlayers = players.filter(p => {
@@ -359,9 +392,7 @@ export function ParticipantTournamentView() {
     ? activeRoundByes.findIndex(b => b.name.toLowerCase().includes(searchQueryClean))
     : -1;
 
-  // Render Bracket view if configured/active
-  const hasBracketPlay = bracketState && bracketState.status !== 'idle';
-  const showBracketTab = hasBracketPlay && tournament.status === 'completed';
+  const showBracketTab = hasBracketPlay && participantTab === 'bracket';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-brand-500/30 selection:text-white pb-12">
@@ -481,18 +512,76 @@ export function ParticipantTournamentView() {
           
           {/* LOBBY / COURT ASSIGNMENTS GRID */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            <div className="flex items-center justify-between bg-slate-900/40 p-4 border border-indigo-500/10 rounded-2xl mb-2">
-              <div className="flex items-center gap-2.5">
-                <span className="relative flex h-3.5 w-3.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-indigo-400"></span>
-                </span>
-                <h2 className="text-base font-display font-bold text-white tracking-tight">Active Round Court Assignments</h2>
+
+            {/* View Mode Sub-Tabs (only visible when brackets have been generated) */}
+            {hasBracketPlay && (
+              <div className="flex bg-slate-900/50 p-1 border border-indigo-500/10 rounded-2xl gap-1">
+                <button
+                  type="button"
+                  onClick={() => setParticipantTab('pool')}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer text-center ${
+                    participantTab === 'pool'
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-550 text-white shadow-lg border border-indigo-505/20'
+                      : 'text-indigo-405 hover:text-indigo-200 hover:bg-indigo-500/5 font-semibold'
+                  }`}
+                >
+                  Pool Play (Rounds)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setParticipantTab('bracket')}
+                  className={`flex-1 py-2.5 px-4 rounded-xl font-display font-black text-xs uppercase tracking-wider transition-all cursor-pointer text-center ${
+                    participantTab === 'bracket'
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-550 text-white shadow-lg border border-indigo-505/20'
+                      : 'text-indigo-405 hover:text-indigo-200 hover:bg-indigo-500/5 font-semibold'
+                  }`}
+                >
+                  Playoffs Bracket 🏆
+                </button>
               </div>
-              <div className="text-xs font-mono bg-indigo-500/10 px-2.5 py-1 text-indigo-300 rounded-md border border-indigo-500/15 font-semibold">
-                Round {tournament.currentRound}
+            )}
+
+            {participantTab === 'pool' && (
+              <div className="flex flex-col gap-4 bg-slate-900/40 p-4 border border-indigo-500/10 rounded-2xl mb-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-3.5 w-3.5">
+                      {displayRound === tournament.currentRound && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75"></span>
+                      )}
+                      <span className={`relative inline-flex rounded-full h-3.5 w-3.5 ${displayRound === tournament.currentRound ? 'bg-indigo-400' : 'bg-slate-500'}`}></span>
+                    </span>
+                    <h2 className="text-base font-display font-bold text-white tracking-tight">
+                      {displayRound === tournament.currentRound ? "Active Round Court Assignments" : `Round ${displayRound} Scoring & Lineups`}
+                    </h2>
+                  </div>
+                  <div className="text-[10px] font-mono bg-indigo-500/10 px-2.5 py-1 text-indigo-300 rounded-md border border-indigo-500/15 font-semibold uppercase tracking-wider">
+                    {displayRound === tournament.currentRound ? 'Active Round' : 'Historical View'}
+                  </div>
+                </div>
+
+                {/* Round Selection Tabs */}
+                {availableRounds.length > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5 border-t border-indigo-500/5 pt-3">
+                    <span className="text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider mr-1.5">Rounds Index:</span>
+                    {availableRounds.map((rNum) => (
+                      <button
+                        key={rNum}
+                        type="button"
+                        onClick={() => setSelectedRoundView(rNum)}
+                        className={`px-3 py-1.5 rounded-lg text-2xs font-mono font-bold transition-all cursor-pointer ${
+                          displayRound === rNum
+                            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10 border border-indigo-500/20'
+                            : 'bg-slate-950/80 hover:bg-slate-900 text-indigo-350 border border-indigo-500/5'
+                        }`}
+                      >
+                        Round {rNum} {rNum === tournament.currentRound ? '⚡' : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             {tournament.status === 'completed' && !showBracketTab && (
               <div className="bg-slate-900/40 border border-indigo-500/10 rounded-3xl p-6 text-center">
@@ -752,28 +841,28 @@ export function ParticipantTournamentView() {
                 ) : (
                   <div className="col-span-2 text-center py-16 bg-slate-900/30 border border-indigo-500/10 rounded-3xl p-6">
                     <p className="text-indigo-300/55 text-sm font-medium">
-                      {tournament.currentRound === 0 
+                      {displayRound === 0 
                         ? "Tournament successfully configured initially. Wait for the game organizers to pair up and broadcast matches for Round 1!"
-                        : `No matchup rosters set or submitted yet for Round ${tournament.currentRound}.`}
+                        : `No matchup rosters set or submitted yet for Round ${displayRound}.`}
                     </p>
                   </div>
                 )}
               </div>
             )}
-
+ 
             {/* BYES FOOTER BAR */}
-            {tournament.currentRound > 0 && !showBracketTab && (
+            {displayRound > 0 && !showBracketTab && (
               <div className="bg-slate-900/40 border border-indigo-500/10 rounded-2xl p-5 backdrop-blur">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-amber-500/15 rounded-xl border border-amber-500/20 text-amber-300">
                     <Sofa className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-display font-bold text-sm text-white">Round Sitting Byes</h4>
+                    <h4 className="font-display font-bold text-sm text-white">Round {displayRound} Sitting Byes</h4>
                     <p className="text-xs text-indigo-200 mt-1">
                       {activeRoundByes.length > 0 
                         ? activeRoundByes.map(b => b.name).join(', ')
-                        : "All registered players successfully allocated to court active games!"}
+                        : `All registered players successfully allocated to court active games for Round ${displayRound}!`}
                     </p>
                   </div>
                 </div>

@@ -429,7 +429,7 @@ function OrganizerLoginGate() {
             type="button"
             className="text-indigo-400/70 hover:text-indigo-300 text-2xs font-bold uppercase tracking-wider font-mono cursor-pointer flex items-center justify-center gap-1.5 w-full text-center border-t border-indigo-500/5 pt-3.5"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Exit to North Beach LI Tournaments
+            <ArrowLeft className="w-3.5 h-3.5" /> Exit to Tournaments
           </button>
         </div>
       </motion.div>
@@ -472,7 +472,7 @@ function OrganizerCabinet({ user }: { user: User }) {
                 to="/"
                 className="bg-slate-950/40 hover:bg-indigo-500/10 text-indigo-400 border border-indigo-500/10 py-1.5 px-3.5 rounded-lg text-2xs uppercase tracking-wide font-mono transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                Exit to North Beach LI Tournaments
+                Exit to Tournaments
               </Link>
             </>
           ) : (
@@ -480,7 +480,7 @@ function OrganizerCabinet({ user }: { user: User }) {
               to="/"
               className="bg-indigo-550/15 hover:bg-indigo-500/25 text-indigo-305 border border-indigo-505/25 py-1.5 px-3.5 rounded-lg text-2xs uppercase tracking-wide font-mono transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Exit to North Beach LI Tournaments
+              <ArrowLeft className="w-3.5 h-3.5" /> Exit to Tournaments
             </Link>
           )}
 
