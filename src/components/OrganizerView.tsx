@@ -49,7 +49,11 @@ import {
   ArrowLeft,
   Mail,
   Key,
-  Shield
+  Shield,
+  Upload,
+  FileText,
+  FileSpreadsheet,
+  AlertTriangle
 } from 'lucide-react';
 
 // === HELPER FOR INDIVIDUAL SCORING NOTIFICATIONS ===
@@ -425,7 +429,7 @@ function OrganizerLoginGate() {
             type="button"
             className="text-indigo-400/70 hover:text-indigo-300 text-2xs font-bold uppercase tracking-wider font-mono cursor-pointer flex items-center justify-center gap-1.5 w-full text-center border-t border-indigo-500/5 pt-3.5"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> Exit to Participant Hub
+            <ArrowLeft className="w-3.5 h-3.5" /> Exit to North Beach LI Tournaments
           </button>
         </div>
       </motion.div>
@@ -446,7 +450,7 @@ function OrganizerCabinet({ user }: { user: User }) {
             <Sliders className="w-5 h-5 text-indigo-150" />
           </div>
           <div>
-            <h1 className="text-sm font-display font-black tracking-tight uppercase bg-gradient-to-r from-white via-indigo-200 to-indigo-300 bg-clip-text text-transparent">
+            <h1 className="text-sm font-display font-black tracking-tight uppercase bg-gradient-to-r from-white via-slate-50 to-indigo-100 bg-clip-text text-transparent">
               {activeTournamentId ? 'Organizer Desk' : 'Championship Cabinet'}
             </h1>
             <p className="text-[9px] font-mono uppercase tracking-widest text-indigo-400 font-bold">
@@ -468,7 +472,7 @@ function OrganizerCabinet({ user }: { user: User }) {
                 to="/"
                 className="bg-slate-950/40 hover:bg-indigo-500/10 text-indigo-400 border border-indigo-500/10 py-1.5 px-3.5 rounded-lg text-2xs uppercase tracking-wide font-mono transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                Exit to Participant Hub
+                Exit to North Beach LI Tournaments
               </Link>
             </>
           ) : (
@@ -476,7 +480,7 @@ function OrganizerCabinet({ user }: { user: User }) {
               to="/"
               className="bg-indigo-550/15 hover:bg-indigo-500/25 text-indigo-305 border border-indigo-505/25 py-1.5 px-3.5 rounded-lg text-2xs uppercase tracking-wide font-mono transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Exit to Participant Hub
+              <ArrowLeft className="w-3.5 h-3.5" /> Exit to North Beach LI Tournaments
             </Link>
           )}
 
@@ -1145,6 +1149,11 @@ function OrganizerTournamentDesk({ tournamentId }: { tournamentId: string }) {
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerGender, setNewPlayerGender] = useState<'female' | 'male'>('female');
   const [managePlayersQuery, setManagePlayersQuery] = useState('');
+  
+  // CSV Import States
+  const [csvIsDragOver, setCsvIsDragOver] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvSuccess, setCsvSuccess] = useState<string | null>(null);
 
   // Settle Score inputs
   const [scoreInputs, setScoreInputs] = useState<Record<string, { teamA: string; teamB: string }>>({});
@@ -1337,6 +1346,139 @@ function OrganizerTournamentDesk({ tournamentId }: { tournamentId: string }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const downloadSampleCsv = () => {
+    const isFixedTeams = tournament?.tournamentType === 'fixed_teams';
+    let headers = '';
+    let rows = '';
+    
+    if (isFixedTeams) {
+      headers = 'Team Name\n';
+      rows = 'Sand Stormers\nSpike Force\nDig & Deliver\nNet Ninjas\nVolley Vipers\nCourt Kings\nBeach Bums\nSet For Life';
+    } else {
+      headers = 'Name,Gender\n';
+      rows = 'Jack Johnson,male\nSarah Connor,female\nMarcus Wright,male\nEllen Ripley,female\nJohn Doe,male\nJane Doe,female\nBob Smith,male\nAlice Smith,female';
+    }
+
+    const blob = new Blob([headers + rows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('href', url);
+    a.setAttribute('download', isFixedTeams ? 'sample_teams_setup.csv' : 'sample_participants_setup.csv');
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleCsvImport = async (file: File) => {
+    setCsvError(null);
+    setCsvSuccess(null);
+    setIsLoading(true);
+
+    if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+      setCsvError('Please upload a valid CSV file.');
+      setIsLoading(false);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const text = e.target?.result;
+        if (typeof text !== 'string') {
+          throw new Error('Could not read file contents.');
+        }
+
+        const lines = text.split(/\r?\n/);
+        if (lines.length === 0 || (lines.length === 1 && !lines[0].trim())) {
+          throw new Error('This CSV file appears to be empty.');
+        }
+
+        const firstLine = lines[0].toLowerCase();
+        const headers = firstLine.split(',').map(h => h.trim().replace(/^["']|["']$/g, ''));
+        
+        const hasHeaders = headers.includes('name') || headers.includes('gender') || headers.includes('team') || headers.includes('team name');
+        const startIndex = hasHeaders ? 1 : 0;
+        const mappedPlayers: { name: string; gender: 'male' | 'female' }[] = [];
+
+        for (let i = startIndex; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+
+          const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/^["']|["']$/g, ''));
+          if (parts.length === 0 || !parts[0]) continue;
+
+          let name = '';
+          let gender: 'male' | 'female' = 'male';
+
+          if (hasHeaders) {
+            const nameIdx = headers.findIndex(h => h.includes('name') || h.includes('team'));
+            if (nameIdx !== -1 && parts[nameIdx]) {
+              name = parts[nameIdx];
+            } else {
+              name = parts[0];
+            }
+
+            const genderIdx = headers.indexOf('gender');
+            if (genderIdx !== -1 && parts[genderIdx]) {
+              const gVal = parts[genderIdx].toLowerCase().trim();
+              if (gVal === 'female' || gVal === 'f' || gVal === 'woman' || gVal === 'female group' || gVal === 'w') {
+                gender = 'female';
+              }
+            }
+          } else {
+            name = parts[0];
+            if (parts[1]) {
+              const gVal = parts[1].toLowerCase().trim();
+              if (gVal === 'female' || gVal === 'f' || gVal === 'woman' || gVal === 'female group' || gVal === 'w') {
+                gender = 'female';
+              }
+            }
+          }
+
+          if (name.trim()) {
+            mappedPlayers.push({
+              name: name.trim(),
+              gender
+            });
+          }
+        }
+
+        if (mappedPlayers.length === 0) {
+          throw new Error('No valid participant records found in the CSV. Make sure you have at least a Name or Team column.');
+        }
+
+        const res = await apiFetch('/api/players/bulk', {
+          method: 'POST',
+          body: JSON.stringify({ players: mappedPlayers })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to bulk import registrants.');
+        }
+
+        const isFixedTeams = tournament?.tournamentType === 'fixed_teams';
+        const msg = isFixedTeams 
+          ? `Successfully imported ${data.count} team nodes from CSV!`
+          : `Successfully imported ${data.count} participants from CSV!`;
+        
+        setCsvSuccess(msg);
+        showNotification(msg, 'success');
+      } catch (err: any) {
+        setCsvError(err.message || 'Error parsing CSV file.');
+        showNotification(err.message || 'Error parsing CSV file.', 'error');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    reader.onerror = () => {
+      setCsvError('Failed to read files.');
+      setIsLoading(false);
+    };
+
+    reader.readAsText(file);
   };
 
   const handleGenerateRound = async () => {
@@ -1879,6 +2021,89 @@ function OrganizerTournamentDesk({ tournamentId }: { tournamentId: string }) {
                 {tournament?.tournamentType === 'fixed_teams' ? 'Register Team Node' : 'Register Active Player'}
               </button>
             </form>
+
+            {/* CSV Import Section */}
+            <div className="border-t border-indigo-500/10 pt-4 mt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-450" />
+                  <span className="text-2xs font-mono uppercase text-indigo-300 font-bold tracking-wider">
+                    Batch Import CSV
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={downloadSampleCsv}
+                  className="text-[9px] font-mono tracking-wider font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/5 hover:bg-emerald-500/15 py-1 px-2.5 rounded-lg border border-emerald-500/15 transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <FileText className="w-3 h-3" /> Sample Template
+                </button>
+              </div>
+
+              <p className="text-[10px] text-indigo-350 mb-3.5 leading-relaxed">
+                {tournament?.tournamentType === 'fixed_teams'
+                  ? "Upload a .csv file structured with a 'Team Name' header column to register multiple teams in bulk."
+                  : "Upload a .csv file formatted with 'Name' and 'Gender' columns. Accepted genders are 'male' or 'female'."}
+              </p>
+
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setCsvIsDragOver(true);
+                }}
+                onDragLeave={() => setCsvIsDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setCsvIsDragOver(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleCsvImport(e.dataTransfer.files[0]);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-2xl p-4 flex flex-col items-center justify-center text-center transition-all cursor-pointer select-none ${
+                  csvIsDragOver
+                    ? 'border-brand-500 bg-brand-500/5 scale-[0.99]'
+                    : 'border-indigo-500/15 hover:border-indigo-500/35 bg-slate-950/40 hover:bg-slate-950/80'
+                }`}
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.csv';
+                  input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file) {
+                      handleCsvImport(file);
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <Upload className={`w-6 h-6 mb-2 transition-transform duration-200 ${csvIsDragOver ? 'translate-y-[-2px] text-brand-400' : 'text-indigo-400'}`} />
+                <span className="text-xs font-semibold text-white">
+                  Click to browse or drop CSV
+                </span>
+                <span className="text-3xs font-mono text-indigo-455 mt-1">
+                  Accepted suffix: .csv
+                </span>
+              </div>
+
+              {csvError && (
+                <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-2 items-start text-[11px] text-red-300 leading-relaxed font-sans">
+                  <AlertTriangle className="w-4 h-4 text-red-405 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Parsing Error:</span> {csvError}
+                  </div>
+                </div>
+              )}
+
+              {csvSuccess && (
+                <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-2 items-start text-[11px] text-emerald-300 leading-relaxed font-sans">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-450 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Success:</span> {csvSuccess}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Registries data list */}
@@ -1984,7 +2209,7 @@ function OrganizerTournamentDesk({ tournamentId }: { tournamentId: string }) {
                 <p className="text-xs text-indigo-300/70 max-w-md mt-2 leading-relaxed">
                   {tournament?.tournamentType === 'fixed_teams'
                     ? 'Generate play-off brackets with actual teams loaded directly. Seeding is automatically based on tournament points standing.'
-                    : 'Generate play-off brackets carrying high qualified females as Captains to snake draft available male players rosters. Select configuration rules and click setup.'}
+                    : 'Generate play-off brackets utilizing drafting style. High-scoring females are preferred as team Captains, with top-scoring males automatically assigned as Captains if there are not enough females to form equal teams.'}
                 </p>
               </div>
 
@@ -2159,7 +2384,7 @@ function OrganizerTournamentDesk({ tournamentId }: { tournamentId: string }) {
                 </div>
 
                 <div className="bg-slate-900/60 border border-indigo-500/15 rounded-3xl p-6 backdrop-blur flex flex-col gap-4 shadow-xl">
-                  <h4 className="font-display font-bold text-xs text-indigo-100 uppercase tracking-tight">Available male candidates pool</h4>
+                  <h4 className="font-display font-bold text-xs text-indigo-100 uppercase tracking-tight">Available draft candidates pool</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-1">
                     {bracketState.draftPool.map((male) => {
                       const selected = selectedDraftPlayerId === male.playerId;

@@ -25,9 +25,20 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Initialize Firebase JS SDK with the client credentials
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+const resolvedFirebaseConfig = {
+  apiKey: process.env.FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: process.env.FIREBASE_APP_ID || firebaseConfig.appId,
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
+  firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.FIREBASE_DATABASE_ID || firebaseConfig.firestoreDatabaseId,
+};
+
+// Initialize Firebase JS SDK with the client credentials or environment fallback
+const firebaseApp = initializeApp(resolvedFirebaseConfig);
+const db = getFirestore(firebaseApp, resolvedFirebaseConfig.firestoreDatabaseId);
 
 export enum OperationType {
   CREATE = 'create',
@@ -438,6 +449,47 @@ app.post(['/api/players', '/api/player'], async (req, res) => {
   } catch (error: any) {
     console.error('Error adding player:', error);
     res.status(500).json({ error: error.message || 'Failed to create player.' });
+  }
+});
+
+// Bulk Add Players (Import CSV)
+app.post('/api/players/bulk', async (req, res) => {
+  const tournamentId = getTournamentId(req);
+  const paths = getPaths(tournamentId);
+
+  const { players } = req.body;
+  if (!players || !Array.isArray(players) || players.length === 0) {
+    return res.status(400).json({ error: 'Players array is required and must not be empty.' });
+  }
+
+  try {
+    const addedPlayers = [];
+    
+    for (const p of players) {
+      const { name, gender } = p;
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        continue;
+      }
+      const cleanName = name.trim();
+      const cleanGender = (gender === 'female' || gender === 'male') ? gender : 'male';
+      const playerRef = doc(paths.playersCol);
+      const newPlayer = {
+        id: playerRef.id,
+        name: cleanName,
+        points: 0,
+        byesCount: 0,
+        satOutRounds: [],
+        gender: cleanGender,
+        tournamentId
+      };
+      await setDoc(playerRef, newPlayer);
+      addedPlayers.push(newPlayer);
+    }
+
+    res.json({ success: true, count: addedPlayers.length, players: addedPlayers });
+  } catch (error: any) {
+    console.error('Error batch adding players:', error);
+    res.status(500).json({ error: error.message || 'Failed to bulk import players.' });
   }
 });
 
@@ -1481,33 +1533,96 @@ app.post('/api/bracket/setup-draft', async (req, res) => {
       allPlayers.push(docSnap.data());
     });
 
-    const females = allPlayers.filter(p => p.gender === 'female').sort((a, b) => b.points - a.points);
-    const males = allPlayers.filter(p => p.gender === 'male').sort((a, b) => b.points - a.points);
-
-    if (females.length === 0) {
-      return res.status(400).json({ error: "Draft requires at least 1 female player to act as team captain!" });
+    let tournamentSnap;
+    try {
+      tournamentSnap = await getDoc(paths.tournament);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `tournaments/${tournamentId}`);
     }
-    if (males.length === 0) {
-      return res.status(400).json({ error: "Draft requires at least 1 male player in the selection pool!" });
-    }
-
-    const captains = females.map(f => ({
-      playerId: f.id,
-      name: f.name,
-      score: f.points,
-      gender: 'female'
-    }));
-
-    const draftPool = males.map(m => ({
-      playerId: m.id,
-      name: m.name,
-      score: m.points,
-      gender: 'male'
-    }));
-
-    const draftOrder = captains.map(c => c.playerId);
     
-    const teams = captains.map(cap => ({
+    if (!tournamentSnap.exists()) {
+      return res.status(400).json({ error: 'No tournament has been configured yet.' });
+    }
+
+    const tournament = tournamentSnap.data()!;
+    const format = tournament.format || '2s';
+    const teamSize = format === '2s' ? 2 : 4;
+
+    const numTeams = Math.floor(allPlayers.length / teamSize);
+    if (numTeams < 2) {
+      return res.status(400).json({ 
+        error: `Not enough players registered to form at least 2 teams of size ${teamSize} (minimum players needed is ${2 * teamSize}). Current player count is ${allPlayers.length}.` 
+      });
+    }
+
+    const females = allPlayers.filter(p => p.gender === 'female').sort((a, b) => (b.points || 0) - (a.points || 0));
+    const nonFemales = allPlayers.filter(p => !p.gender || p.gender !== 'female').sort((a, b) => (b.points || 0) - (a.points || 0));
+
+    let chosenCaptains: any[] = [];
+    let chosenDraftPool: any[] = [];
+
+    if (females.length >= numTeams) {
+      // Enough females to act as captains
+      const captainFemales = females.slice(0, numTeams);
+      const remainingFemales = females.slice(numTeams);
+
+      chosenCaptains = captainFemales.map(f => ({
+        playerId: f.id,
+        name: f.name,
+        score: f.points || 0,
+        gender: 'female'
+      }));
+
+      // The rest of the females plus all non-females go to draft pool
+      const poolPlayers = [...remainingFemales, ...nonFemales].sort((a, b) => (b.points || 0) - (a.points || 0));
+      chosenDraftPool = poolPlayers.map(p => ({
+        playerId: p.id,
+        name: p.name,
+        score: p.points || 0,
+        gender: p.gender || 'male'
+      }));
+    } else {
+      // Not enough females; use all available females plus the top scoring non-females to fill out the captains
+      chosenCaptains = females.map(f => ({
+        playerId: f.id,
+        name: f.name,
+        score: f.points || 0,
+        gender: 'female'
+      }));
+
+      const remCaptainsNeeded = numTeams - females.length;
+      const captainMales = nonFemales.slice(0, remCaptainsNeeded);
+      const remainingMales = nonFemales.slice(remCaptainsNeeded);
+
+      chosenCaptains = [
+        ...chosenCaptains,
+        ...captainMales.map(m => ({
+          playerId: m.id,
+          name: m.name,
+          score: m.points || 0,
+          gender: m.gender || 'male'
+        }))
+      ];
+
+      // Only the remaining non-females go to the draft pool
+      chosenDraftPool = remainingMales.map(m => ({
+        playerId: m.id,
+        name: m.name,
+        score: m.points || 0,
+        gender: m.gender || 'male'
+      }));
+    }
+
+    if (chosenCaptains.length === 0) {
+      return res.status(400).json({ error: "Draft requires at least 1 player to act as team captain!" });
+    }
+    if (chosenDraftPool.length === 0) {
+      return res.status(400).json({ error: "Draft requires at least 1 player in the selection pool!" });
+    }
+
+    const draftOrder = chosenCaptains.map(c => c.playerId);
+    
+    const teams = chosenCaptains.map(cap => ({
       id: `team_${cap.playerId}`,
       name: `Team ${cap.name}`,
       captainId: cap.playerId,
@@ -1524,8 +1639,8 @@ app.post('/api/bracket/setup-draft', async (req, res) => {
       draftStep: 0,
       draftOrder,
       isSnakeReverse: false,
-      captains,
-      draftPool,
+      captains: chosenCaptains,
+      draftPool: chosenDraftPool,
       teams,
       currentPickerId: draftOrder[0] || null,
       matches: [],

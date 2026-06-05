@@ -4,6 +4,7 @@ import { useParams, Link } from 'react-router-dom';
 import { collection, doc, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Tournament, Player, Match, RoundInfo, BracketState } from '../types';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Trophy,
   Users,
@@ -16,13 +17,16 @@ import {
   ArrowLeft,
   Calendar,
   Layers,
-  Sparkles
+  Sparkles,
+  QrCode,
+  X
 } from 'lucide-react';
 
 // === PARTICIPANT HUB (LIST OF ALL ACTIVE TOURNAMENTS) ===
 export function ParticipantHub() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedQrTournament, setSelectedQrTournament] = useState<Tournament | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, 'rounds'), where('type', '==', 'tournament')), (snapshot) => {
@@ -49,8 +53,8 @@ export function ParticipantHub() {
             <Trophy className="w-5 h-5 text-indigo-100" />
           </div>
           <div>
-            <h1 className="text-lg font-display font-black tracking-tight bg-gradient-to-r from-white via-indigo-200 to-brand-300 bg-clip-text text-transparent">
-              Participant Hub
+            <h1 className="text-lg font-display font-black tracking-tight bg-gradient-to-r from-white via-slate-50 to-indigo-100 bg-clip-text text-transparent w-full">
+              North Beach LI Tournaments
             </h1>
             <p className="text-[10px] font-mono uppercase tracking-widest text-indigo-400 font-bold">
               Viewer & Placements Portal
@@ -62,7 +66,7 @@ export function ParticipantHub() {
           to="/organizer"
           className="bg-indigo-600 hover:bg-indigo-550 text-white border border-indigo-500/20 py-2 px-4 rounded-xl font-display font-bold text-2xs uppercase tracking-wider transition-all cursor-pointer text-center"
         >
-          Organizer Desk Key ⚡
+          Organizer Sign In ⚡
         </Link>
       </nav>
 
@@ -123,12 +127,22 @@ export function ParticipantHub() {
                   </div>
                 </div>
 
-                <Link
-                  to={`/tournament/${t.id}`}
-                  className="w-full bg-slate-950 hover:bg-slate-900 border border-indigo-500/20 hover:border-indigo-400 text-center py-2.5 rounded-xl font-display font-bold text-xs uppercase tracking-wider text-indigo-200 transition-all block"
-                >
-                  Join Tournament Area 🏆
-                </Link>
+                <div className="flex gap-2">
+                  <Link
+                    to={`/tournament/${t.id}`}
+                    className="flex-grow bg-slate-950 hover:bg-slate-900 border border-indigo-500/20 hover:border-indigo-400 text-center py-2.5 rounded-xl font-display font-bold text-xs uppercase tracking-wider text-indigo-200 transition-all block"
+                  >
+                    Join Tournament Area 🏆
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedQrTournament(t)}
+                    className="aspect-square bg-indigo-650 hover:bg-indigo-600 border border-indigo-500/20 hover:border-indigo-400 p-2.5 rounded-xl transition-all flex items-center justify-center cursor-pointer group"
+                    title="Scan Match Schedules QR"
+                  >
+                    <QrCode className="w-5 h-5 text-indigo-100 group-hover:scale-105 transition-transform" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -142,6 +156,69 @@ export function ParticipantHub() {
           </div>
         )}
       </main>
+
+      {/* QR Code Scan Modal */}
+      <AnimatePresence>
+        {selectedQrTournament && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setSelectedQrTournament(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-900 border border-indigo-500/25 rounded-3xl p-6 sm:p-8 max-w-sm w-full relative shadow-2xl"
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedQrTournament(null)}
+                className="absolute top-4 right-4 text-indigo-400 hover:text-indigo-200 p-1.5 rounded-xl hover:bg-indigo-500/10 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center mt-2 flex flex-col items-center">
+                <div className="bg-gradient-to-tr from-indigo-600 to-indigo-550 p-2.5 rounded-2xl text-white mb-4 shadow">
+                  <QrCode className="w-6 h-6 text-indigo-100 animate-pulse" />
+                </div>
+                
+                <h3 className="font-display font-black text-lg text-white uppercase tracking-tight leading-snug">
+                  {selectedQrTournament.title || "Arena Tournament Championship"}
+                </h3>
+                <p className="text-2xs font-mono uppercase tracking-widest text-indigo-400 font-bold mt-1.5">
+                  Schedules Quick-Scan Key
+                </p>
+
+                <div className="bg-white p-4 rounded-3xl my-6 shadow-xl border border-indigo-500/10 flex items-center justify-center">
+                  <QRCodeSVG
+                    value={`${window.location.origin}/tournament/${selectedQrTournament.id}`}
+                    size={180}
+                    level="Q"
+                    includeMargin={false}
+                  />
+                </div>
+
+                <p className="text-xs text-indigo-200/80 max-w-xs leading-relaxed">
+                  Point your phone's camera at this QR code to instantly track scorecards, view active court rosters, and inspect standings in real-time.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedQrTournament(null)}
+                  className="w-full mt-6 py-2.5 bg-indigo-600 hover:bg-indigo-550 text-white font-display font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                >
+                  Dismiss Scan Key
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -158,6 +235,7 @@ export function ParticipantTournamentView() {
   const [genderRankFilter, setGenderRankFilter] = useState<'all' | 'male' | 'female'>('all');
   const [activeDivisionFilter, setActiveDivisionFilter] = useState<'higher' | 'lower'>('higher');
   const [isLoading, setIsLoading] = useState(true);
+  const [showLargeQr, setShowLargeQr] = useState(false);
 
   useEffect(() => {
     if (!tournamentId) return;
@@ -704,7 +782,45 @@ export function ParticipantTournamentView() {
           </div>
 
           {/* PUBLIC LADDER STANDINGS LEADERBOARD */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 flex flex-col gap-6">
+            
+            {/* MOBILE SYNC QR CODE WIDGET */}
+            <div className="bg-slate-900/50 border border-indigo-500/15 rounded-3xl p-6 backdrop-blur flex flex-col gap-4 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-brand-500"></div>
+              
+              <div className="flex items-center gap-2.5">
+                <QrCode className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-base font-display font-bold text-white uppercase tracking-tight">Access on Phone</h3>
+              </div>
+              
+              <p className="text-xs text-indigo-200/80 leading-relaxed font-sans">
+                Scan this code to load this tournament directly onto your mobile device. Perfect for tracking court assignments on-the-go!
+              </p>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-slate-950/40 p-4 rounded-2xl border border-indigo-500/5">
+                <button
+                  type="button"
+                  onClick={() => setShowLargeQr(true)}
+                  className="bg-white p-2.5 rounded-2xl shadow-lg border border-indigo-500/10 flex items-center justify-center shrink-0 cursor-pointer hover:scale-[1.03] active:scale-[0.98] transition-all"
+                  title="Click to Magnify"
+                >
+                  <QRCodeSVG
+                    value={window.location.href}
+                    size={100}
+                    level="Q"
+                    includeMargin={false}
+                  />
+                </button>
+                <div className="flex flex-col text-center sm:text-left">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-400">Live Companion</span>
+                  <span className="text-xs font-semibold text-white mt-1 leading-snug">Real-Time Sync Ready</span>
+                  <p className="text-[10px] text-indigo-300/60 mt-1 max-w-[170px] mx-auto sm:mx-0 font-display">
+                    Schedules, scores, and standings will automatically update.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div id="standings-leaderboard" className="bg-slate-900/50 border border-indigo-500/15 rounded-3xl p-6 backdrop-blur flex flex-col gap-5 h-fit shadow-xl relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-brand-500 to-indigo-300"></div>
 
@@ -834,6 +950,69 @@ export function ParticipantTournamentView() {
         </div>
 
       </main>
+
+      {/* Magnified QR Code Scan Modal */}
+      <AnimatePresence>
+        {showLargeQr && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setShowLargeQr(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-slate-900 border border-indigo-500/25 rounded-3xl p-6 sm:p-8 max-w-sm w-full relative shadow-2xl"
+            >
+              <button
+                type="button"
+                onClick={() => setShowLargeQr(false)}
+                className="absolute top-4 right-4 text-indigo-400 hover:text-indigo-200 p-1.5 rounded-xl hover:bg-indigo-500/10 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center mt-2 flex flex-col items-center">
+                <div className="bg-gradient-to-tr from-indigo-650 to-indigo-550 p-2.5 rounded-2xl text-white mb-4 shadow">
+                  <QrCode className="w-6 h-6 text-indigo-100 animate-pulse" />
+                </div>
+                
+                <h3 className="font-display font-black text-lg text-white uppercase tracking-tight leading-snug">
+                  {tournament.title || "Arena Tournament Championship"}
+                </h3>
+                <p className="text-2xs font-mono uppercase tracking-widest text-indigo-400 font-bold mt-1.5">
+                  Mobile Companion Code
+                </p>
+
+                <div className="bg-white p-4 rounded-3xl my-6 shadow-xl border border-indigo-500/10 flex items-center justify-center">
+                  <QRCodeSVG
+                    value={window.location.href}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                  />
+                </div>
+
+                <p className="text-xs text-indigo-200/80 max-w-xs leading-relaxed">
+                  Scan this QR code with your phone's camera to instantly open the match schedules, standings leaderboard, and active court roster live!
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => setShowLargeQr(false)}
+                  className="w-full mt-6 py-2.5 bg-indigo-600 hover:bg-indigo-550 text-white font-display font-bold text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                >
+                  Dismiss Scan Key
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
